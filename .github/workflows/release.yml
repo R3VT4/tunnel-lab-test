@@ -1,0 +1,46 @@
+name: Draft release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Verify source
+        run: |
+          test -z "$(gofmt -l -- *.go)"
+          go vet ./...
+          go test -race -count=1 -timeout 90s ./...
+          go build -buildvcs=false -trimpath -o bin/tunnellab-linux-amd64 .
+          bin/tunnellab-linux-amd64 selftest
+          python3 scripts/smoke.py
+          python3 scripts/smoke.py --reverse
+          python3 scripts/udp_smoke.py
+          python3 scripts/install_smoke.py
+      - name: Package binaries
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bash scripts/build-release.sh
+      - name: Create a draft for review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: >-
+          gh release create "$RELEASE_TAG"
+          dist/*.tar.gz dist/SHA256SUMS
+          --verify-tag --draft --prerelease
+          --title "$RELEASE_TAG"
+          --notes-file CHANGELOG.md

@@ -1,0 +1,33 @@
+[Unit]
+Description=Tunnel Lab instance %i
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=tunnellab
+Group=tunnellab
+WorkingDirectory=/etc/tunnellab/instances/%i
+ExecStartPre=/usr/local/bin/tunnellab check -config /etc/tunnellab/instances/%i/config.json
+ExecStart=/usr/local/bin/tunnellab run -config /etc/tunnellab/instances/%i/config.json
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=15
+UMask=0077
+LimitNOFILE=65536
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

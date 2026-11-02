@@ -1,0 +1,36 @@
+name: Checks
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.x'
+          cache: false
+      - name: Format
+        run: test -z "$(gofmt -l -- *.go)"
+      - name: Static checks
+        run: go vet ./...
+      - name: Race tests
+        run: go test -race -count=1 -timeout 90s ./...
+      - name: Build and verify executable
+        run: |
+          go build -buildvcs=false -trimpath -o bin/tunnellab-linux-amd64 .
+          bin/tunnellab-linux-amd64 selftest
+          python3 scripts/smoke.py
+          python3 scripts/smoke.py --reverse
+          python3 scripts/udp_smoke.py
+          python3 scripts/install_smoke.py
+      - name: Check release packaging
+        run: bash scripts/build-release.sh
