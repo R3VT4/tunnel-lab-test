@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -175,14 +176,13 @@ func serveUDPEdge(ctx context.Context, udp *net.UDPConn, c Config, tc *tls.Confi
 
 func (f *udpFlow) run(udp *net.UDPConn, source *net.UDPAddr, c Config, tc *tls.Config, s *Stats) error {
 	setupCtx, cancel := context.WithTimeout(f.ctx, setupTimeout)
-	d := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}, Config: tc}
-	conn, err := d.DialContext(setupCtx, "tcp", c.Peer)
+	conn, err := dialTransport(setupCtx, c, tc, udpALPN)
 	cancel()
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
-	if conn.(*tls.Conn).ConnectionState().NegotiatedProtocol != udpALPN {
+	if c.ProtocolNegotiation != "encrypted-preface" && conn.ConnectionState().NegotiatedProtocol != udpALPN {
 		return errors.New("UDP ALPN mismatch")
 	}
 	stop := context.AfterFunc(f.ctx, func() { conn.Close() })
@@ -247,17 +247,24 @@ func serveUDPRelay(ctx context.Context, ln net.Listener, c Config, tc *tls.Confi
 		if err := conn.HandshakeContext(ctx); err != nil {
 			if ctx.Err() == nil {
 				s.errors.Add(1)
+				log.Printf("TLS handshake from %s: %v", raw.RemoteAddr(), err)
 			}
 			return
 		}
-		if conn.ConnectionState().NegotiatedProtocol == probeALPN {
+		protocol, err := serverProtocol(conn, c)
+		if err != nil {
+			s.errors.Add(1)
+			log.Printf("protocol negotiation from %s: %v", raw.RemoteAddr(), err)
+			return
+		}
+		if protocol == probeALPN {
 			s.probes.Add(1)
 			if err := handleProbe(ctx, conn); err != nil && ctx.Err() == nil {
 				s.errors.Add(1)
 			}
 			return
 		}
-		if conn.ConnectionState().NegotiatedProtocol != udpALPN {
+		if protocol != udpALPN {
 			s.errors.Add(1)
 			return
 		}

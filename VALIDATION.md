@@ -90,3 +90,21 @@ packages the installer, systemd template, guides and per-archive SHA-256 manifes
 The amd64 archive is extracted and its built-in selftest and staged installer are
 exercised locally. The arm64 executable is built but not run here. CI/draft-release
 workflow YAML is structurally checked locally; execution on GitHub is pending upload.
+
+
+## v0.4.1-alpha compatibility change
+
+The original 28 test functions remain. Five additional tests cover encrypted
+negotiation: exact TCP and reverse payloads with half-close, zero and maximum UDP
+datagrams, probes on all three listeners, invalid/cross-protocol/truncated
+prefaces, wrong trust roots and server hostname, TLS timeout socket cleanup, and
+mismatched ALPN/preface profiles. These are local checks, not WAN validation.
+
+
+## v0.4.2-alpha identity verification
+
+The new client option is tested with an observed empty ClientHello server name,
+real direct/reverse/UDP transfers and authenticated probes, rejection of wrong
+CA and wrong hostname, and verifier checks for expired, not-yet-valid,
+client-only and missing server certificates. TLS 1.3 mutual authentication is
+retained. Local tests do not establish WAN reachability or censorship cause.

@@ -72,11 +72,19 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 			defer cancel()
 			if c.Mode == "relay" {
 				t := tls.Server(incoming, tc)
+				t.SetDeadline(time.Now().Add(setupTimeout))
 				if err := t.HandshakeContext(setupCtx); err != nil {
 					s.errors.Add(1)
+					log.Printf("TLS handshake from %s: %v", incoming.RemoteAddr(), err)
 					return
 				}
-				if t.ConnectionState().NegotiatedProtocol == probeALPN {
+				protocol, err := serverProtocol(t, c)
+				if err != nil {
+					s.errors.Add(1)
+					log.Printf("protocol negotiation from %s: %v", incoming.RemoteAddr(), err)
+					return
+				}
+				if protocol == probeALPN {
 					cancel()
 					s.probes.Add(1)
 					if err := handleProbe(ctx, t); err != nil && ctx.Err() == nil {
@@ -84,18 +92,18 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 					}
 					return
 				}
-				if t.ConnectionState().NegotiatedProtocol != "tunnellab/0.1" {
+				if protocol != "tunnellab/0.1" {
 					s.errors.Add(1)
 					return
 				}
+				t.SetDeadline(time.Time{})
 				left = t
 			}
 			var right net.Conn
 			var dialErr error
 			dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 			if c.Mode == "edge" {
-				d := tls.Dialer{NetDialer: dialer, Config: tc}
-				right, dialErr = d.DialContext(setupCtx, "tcp", c.Peer)
+				right, dialErr = dialTransport(setupCtx, c, tc, "tunnellab/0.1")
 			} else {
 				right, dialErr = dialer.DialContext(setupCtx, "tcp", c.Target)
 			}
@@ -105,7 +113,7 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 				return
 			}
 			defer right.Close()
-			if t, ok := right.(*tls.Conn); ok && t.ConnectionState().NegotiatedProtocol != "tunnellab/0.1" {
+			if t, ok := right.(*tls.Conn); ok && c.ProtocolNegotiation != "encrypted-preface" && t.ConnectionState().NegotiatedProtocol != "tunnellab/0.1" {
 				s.errors.Add(1)
 				return
 			}

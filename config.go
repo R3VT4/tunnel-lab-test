@@ -13,19 +13,21 @@ import (
 )
 
 type Config struct {
-	Mode            string `json:"mode"`
-	Listen          string `json:"listen"`
-	TunnelListen    string `json:"tunnel_listen,omitempty"`
-	Peer            string `json:"peer,omitempty"`
-	Target          string `json:"target,omitempty"`
-	ServerName      string `json:"server_name,omitempty"`
-	CA              string `json:"ca"`
-	Cert            string `json:"cert"`
-	Key             string `json:"key"`
-	Admin           string `json:"admin"`
-	MaxConnections  int    `json:"max_connections"`
-	IdleSeconds     int    `json:"idle_seconds"`
-	UDPQueuePackets int    `json:"udp_queue_packets,omitempty"`
+	ProtocolNegotiation string `json:"protocol_negotiation,omitempty"`
+	OmitSNI             bool   `json:"omit_sni,omitempty"`
+	Mode                string `json:"mode"`
+	Listen              string `json:"listen"`
+	TunnelListen        string `json:"tunnel_listen,omitempty"`
+	Peer                string `json:"peer,omitempty"`
+	Target              string `json:"target,omitempty"`
+	ServerName          string `json:"server_name,omitempty"`
+	CA                  string `json:"ca"`
+	Cert                string `json:"cert"`
+	Key                 string `json:"key"`
+	Admin               string `json:"admin"`
+	MaxConnections      int    `json:"max_connections"`
+	IdleSeconds         int    `json:"idle_seconds"`
+	UDPQueuePackets     int    `json:"udp_queue_packets,omitempty"`
 }
 
 func loadConfig(path string) (Config, error) {
@@ -46,6 +48,12 @@ func loadConfig(path string) (Config, error) {
 	}
 	if c.Mode != "edge" && c.Mode != "relay" && c.Mode != "reverse-edge" && c.Mode != "reverse-relay" && c.Mode != "udp-edge" && c.Mode != "udp-relay" {
 		return c, errors.New("unknown tunnel mode")
+	}
+	if c.ProtocolNegotiation != "" && c.ProtocolNegotiation != "alpn" && c.ProtocolNegotiation != "encrypted-preface" {
+		return c, errors.New("protocol_negotiation must be alpn or encrypted-preface")
+	}
+	if c.OmitSNI && c.Mode != "edge" && c.Mode != "reverse-relay" && c.Mode != "udp-edge" {
+		return c, errors.New("omit_sni is only valid for edge, reverse-relay or udp-edge")
 	}
 	if c.MaxConnections < 1 || c.MaxConnections > 10000 {
 		return c, errors.New("max_connections must be 1..10000")
@@ -167,6 +175,37 @@ func tlsConfig(c Config) (*tls.Config, error) {
 	} else {
 		t.RootCAs = pool
 		t.ServerName = c.ServerName
+		if c.OmitSNI {
+			if c.ServerName == "" {
+				return nil, errors.New("omit_sni still requires server_name for certificate verification")
+			}
+			// Go couples SNI with its default hostname check. Disable that
+			// coupled check ONLY with a mandatory full verification callback.
+			// Keep the expected identity out of ClientHello, not out of trust.
+			t.ServerName = ""
+			t.InsecureSkipVerify = true
+			t.VerifyConnection = func(cs tls.ConnectionState) error {
+				return verifyServerCertificate(cs, pool, c.ServerName)
+			}
+		}
+	}
+	if c.ProtocolNegotiation == "encrypted-preface" {
+		t.NextProtos = nil
 	}
 	return t, nil
+}
+
+func verifyServerCertificate(cs tls.ConnectionState, roots *x509.CertPool, name string) error {
+	if len(cs.PeerCertificates) == 0 {
+		return errors.New("missing server certificate")
+	}
+	intermediates := x509.NewCertPool()
+	for _, cert := range cs.PeerCertificates[1:] {
+		intermediates.AddCert(cert)
+	}
+	_, err := cs.PeerCertificates[0].Verify(x509.VerifyOptions{
+		Roots: roots, Intermediates: intermediates, DNSName: name,
+		KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	})
+	return err
 }

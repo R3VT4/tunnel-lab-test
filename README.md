@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.0-alpha — prepared for deployment testing.**
+**Working name. v0.4.2-alpha — optional SNI omission with full certificate verification.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -98,3 +98,56 @@ bash scripts/build-release.sh
 No repository URL, owner, or final project name is hard-coded.
 See [CHANGELOG.md](CHANGELOG.md) for the release scope and [VALIDATION.md](VALIDATION.md)
 for the actual checks and their limits.
+
+## Protocol negotiation compatibility
+
+The default remains ALPN for compatibility with v0.4.0-alpha. To omit the
+application protocol from the TLS ClientHello, install v0.4.1-alpha on BOTH
+servers and set this field in BOTH active instance configurations:
+
+```json
+"protocol_negotiation": "encrypted-preface"
+```
+
+The peers still use TLS 1.3, a private trusted CA, server hostname verification,
+and required client certificates. After TLS authentication, the client sends
+`TLAB`, version byte `1`, and a protocol-kind byte inside the encrypted stream;
+the server validates the requested kind and echoes the six-byte header before
+application data. Direct TCP, reverse control/data, UDP-over-TLS, and probes use
+the same negotiation mechanism. Invalid, unsupported, truncated, and mismatched
+negotiations fail closed. No automatic downgrade or plaintext fallback occurs.
+This is not an HTTP implementation, browser impersonation, or a guarantee that
+any particular network will permit the connection. SNI is unchanged.
+
+`probe` now identifies TCP-connect, TLS-handshake and encrypted-negotiation
+failures separately. Servers log TLS/negotiation failures, and reverse relays
+log control-session failures. Logs do not include credentials or data tickets.
+
+For an existing managed instance, edit `/etc/tunnellab/instances/NAME/config.json`
+and restart that instance. Editing the original imported JSON does not update
+its independent managed copy. A binary upgrade alone does not enable this mode.
+
+## Sending SNI separately from verifying identity
+
+Client configurations (`edge`, `udp-edge`, `reverse-relay`) may additionally use:
+
+```json
+"protocol_negotiation": "encrypted-preface",
+"omit_sni": true
+```
+
+Keep `server_name` set to the expected certificate DNS name. `omit_sni` only
+removes that identity from ClientHello. Go's coupled SNI/default verification is
+replaced by a mandatory `VerifyConnection` callback that checks the entire
+certificate chain against the configured CA, certificate signatures and
+validity, the expected DNS name, and ServerAuth usage. It never accepts an
+unverified certificate. Server-side mutual client certificate verification is
+unchanged. Server configurations reject `omit_sni: true` to catch role mistakes.
+The default remains `false`. The encrypted wire format is unchanged from
+0.4.1-alpha, so a 0.4.2 client can use an already-updated 0.4.1 server configured
+for encrypted-preface. Only the client needs this update for that pairing.
+
+Deployment evidence: in a consecutive OpenSSL comparison without ALPN and with
+X25519, the no-SNI handshake succeeded with certificate verification and the
+SNI-on handshake timed out. This does not establish where or why the traffic
+was interrupted, or establish successful application forwarding by this update.

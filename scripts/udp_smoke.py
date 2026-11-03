@@ -12,7 +12,7 @@ import urllib.request
 from smoke import free_port
 
 
-def run(binary):
+def run(binary, negotiation="alpn", omit_sni=False):
     binary=str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="tunnellab-udp-") as tmp:
         root=pathlib.Path(tmp);demo=root/"demo"
@@ -38,8 +38,9 @@ def run(binary):
         paths={}
         for role in ("relay","edge"):
             path=demo/f"udp-{role}.json";paths[role]=path
-            cfg=json.loads(path.read_text());cfg["listen"]=peer if role=="relay" else edge
+            cfg=json.loads(path.read_text());cfg["protocol_negotiation"]=negotiation;cfg["listen"]=peer if role=="relay" else edge
             cfg["admin"]=relay_admin if role=="relay" else edge_admin
+            if omit_sni and role=="edge":cfg["omit_sni"]=True
             if role=="relay":cfg["target"]="127.0.0.1:"+str(target.getsockname()[1])
             else:cfg["peer"]=peer
             path.write_text(json.dumps(cfg))
@@ -83,4 +84,7 @@ def run(binary):
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser();parser.add_argument("--binary",default="bin/tunnellab-linux-amd64")
-    run(parser.parse_args().binary)
+    parser.add_argument("--negotiation",choices=("alpn","encrypted-preface"),default="alpn")
+    parser.add_argument("--omit-sni",action="store_true")
+    args=parser.parse_args()
+    run(args.binary,args.negotiation,args.omit_sni)
