@@ -1,3 +1,16 @@
+# v0.4.2-alpha
+
+- Add client-only `omit_sni: true`, retaining `server_name` as the required
+  certificate identity. Full x509 chain, hostname, validity and ServerAuth
+  checks are enforced by a mandatory VerifyConnection callback.
+- Preserve required client certificates on servers and the encrypted-preface
+  wire format introduced in 0.4.1. An encrypted-preface 0.4.1 server does not
+  need replacement to accept an updated 0.4.2 client.
+- Add ClientHello observation to verify SNI omission, certificate validity and
+  usage checks, and run direct/reverse/UDP and probe tests with SNI omitted.
+- WAN status: the user reported success without SNI and a timeout with SNI
+  in consecutive no-ALPN OpenSSL tests. This update still needs a WAN test.
+
 # v0.4.1-alpha
 
 - Add opt-in `protocol_negotiation: encrypted-preface` on both peers. TLS 1.3

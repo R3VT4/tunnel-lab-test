@@ -3,7 +3,12 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
 	"crypto/tls"
+	"crypto/x509"
+	"math/big"
 	"net"
 	"strings"
 	"testing"
@@ -15,6 +20,11 @@ func TestEncryptedPrefaceEndToEnd(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			e, r := testConfigs(t)
 			e.ProtocolNegotiation, r.ProtocolNegotiation = "encrypted-preface", "encrypted-preface"
+			e.OmitSNI = true
+			if mode == "reverse" {
+				e.OmitSNI = false
+				r.OmitSNI = true
+			}
 			var client Config
 			switch mode {
 			case "direct":
@@ -95,6 +105,7 @@ func TestEncryptedPrefaceRejectsInvalidAndCrossProtocolHeaders(t *testing.T) {
 func TestEncryptedPrefacePreservesCertificateVerification(t *testing.T) {
 	e, r := testConfigs(t)
 	e.ProtocolNegotiation, r.ProtocolNegotiation = "encrypted-preface", "encrypted-preface"
+	e.OmitSNI = true
 	e.Peer, _, _ = startEngine(t, r)
 	for _, wrongCA := range []bool{false, true} {
 		c := e
@@ -117,6 +128,102 @@ func TestEncryptedPrefacePreservesCertificateVerification(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "TLS handshake") {
 			t.Fatalf("certificate error missing: %v", err)
 		}
+	}
+}
+
+func TestOmitSNIIsAbsentFromClientHello(t *testing.T) {
+	e, r := testConfigs(t)
+	e.OmitSNI = true
+	e.ProtocolNegotiation, r.ProtocolNegotiation = "encrypted-preface", "encrypted-preface"
+	serverTC, err := tlsConfig(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hello := make(chan string, 1)
+	serverTC.GetConfigForClient = func(info *tls.ClientHelloInfo) (*tls.Config, error) { hello <- info.ServerName; return nil, nil }
+	ln := listenLocal(t)
+	defer ln.Close()
+	e.Peer = ln.Addr().String()
+	done := make(chan error, 1)
+	go func() {
+		raw, err := ln.Accept()
+		if err != nil {
+			done <- err
+			return
+		}
+		defer raw.Close()
+		raw.SetDeadline(time.Now().Add(time.Second))
+		conn := tls.Server(raw, serverTC)
+		if err = conn.Handshake(); err == nil {
+			_, err = serverProtocol(conn, r)
+		}
+		done <- err
+	}()
+	clientTC, err := tlsConfig(e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	conn, err := dialTransport(ctx, e, clientTC, probeALPN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+	if sni := <-hello; sni != "" {
+		t.Fatalf("SNI leaked: %q", sni)
+	}
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestOmitSNIVerifierRejectsExpiredAndWrongUsage(t *testing.T) {
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	ca := &x509.Certificate{SerialNumber: big.NewInt(1), NotBefore: now.Add(-time.Hour), NotAfter: now.Add(time.Hour), IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign}
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &key.PublicKey, key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := x509.ParseCertificate(caDER)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(root)
+	for _, kind := range []string{"valid", "expired", "future", "client-only"} {
+		t.Run(kind, func(t *testing.T) {
+			leaf := &x509.Certificate{SerialNumber: big.NewInt(2), DNSNames: []string{"relay.tunnellab.local"}, NotBefore: now.Add(-time.Minute), NotAfter: now.Add(time.Minute), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+			switch kind {
+			case "expired":
+				leaf.NotBefore = now.Add(-time.Hour)
+				leaf.NotAfter = now.Add(-time.Minute)
+			case "future":
+				leaf.NotBefore = now.Add(time.Minute)
+				leaf.NotAfter = now.Add(2 * time.Minute)
+			case "client-only":
+				leaf.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth}
+			}
+			der, err := x509.CreateCertificate(rand.Reader, leaf, root, &key.PublicKey, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cert, err := x509.ParseCertificate(der)
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = verifyServerCertificate(tls.ConnectionState{PeerCertificates: []*x509.Certificate{cert}}, roots, "relay.tunnellab.local")
+			if (err == nil) != (kind == "valid") {
+				t.Fatalf("unexpected verification result: %v", err)
+			}
+		})
+	}
+	if err := verifyServerCertificate(tls.ConnectionState{}, roots, "relay.tunnellab.local"); err == nil {
+		t.Fatal("missing certificate accepted")
 	}
 }
 

@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.1-alpha — encrypted protocol negotiation for deployment testing.**
+**Working name. v0.4.2-alpha — optional SNI omission with full certificate verification.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -126,3 +126,28 @@ log control-session failures. Logs do not include credentials or data tickets.
 For an existing managed instance, edit `/etc/tunnellab/instances/NAME/config.json`
 and restart that instance. Editing the original imported JSON does not update
 its independent managed copy. A binary upgrade alone does not enable this mode.
+
+## Sending SNI separately from verifying identity
+
+Client configurations (`edge`, `udp-edge`, `reverse-relay`) may additionally use:
+
+```json
+"protocol_negotiation": "encrypted-preface",
+"omit_sni": true
+```
+
+Keep `server_name` set to the expected certificate DNS name. `omit_sni` only
+removes that identity from ClientHello. Go's coupled SNI/default verification is
+replaced by a mandatory `VerifyConnection` callback that checks the entire
+certificate chain against the configured CA, certificate signatures and
+validity, the expected DNS name, and ServerAuth usage. It never accepts an
+unverified certificate. Server-side mutual client certificate verification is
+unchanged. Server configurations reject `omit_sni: true` to catch role mistakes.
+The default remains `false`. The encrypted wire format is unchanged from
+0.4.1-alpha, so a 0.4.2 client can use an already-updated 0.4.1 server configured
+for encrypted-preface. Only the client needs this update for that pairing.
+
+Deployment evidence: in a consecutive OpenSSL comparison without ALPN and with
+X25519, the no-SNI handshake succeeded with certificate verification and the
+SNI-on handshake timed out. This does not establish where or why the traffic
+was interrupted, or establish successful application forwarding by this update.

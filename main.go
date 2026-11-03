@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var version = "0.4.1-alpha"
+var version = "0.4.2-alpha"
 
 func main() {
 	if err := command(os.Args[1:]); err != nil {
