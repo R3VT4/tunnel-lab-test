@@ -102,11 +102,8 @@ func runProbe(ctx context.Context, c Config, tc *tls.Config, size, rounds int) (
 	if c.Peer == "" || c.ServerName == "" {
 		return report, errors.New("probe requires an edge, udp-edge or reverse-relay config")
 	}
-	tc = tc.Clone()
-	tc.NextProtos = []string{probeALPN}
-	d := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second}, Config: tc}
 	start := time.Now()
-	conn, err := d.DialContext(ctx, "tcp", c.Peer)
+	conn, err := dialTransport(ctx, c, tc, probeALPN)
 	if err != nil {
 		return report, err
 	}
@@ -115,7 +112,7 @@ func runProbe(ctx context.Context, c Config, tc *tls.Config, size, rounds int) (
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
-	if conn.(*tls.Conn).ConnectionState().NegotiatedProtocol != probeALPN {
+	if c.ProtocolNegotiation != "encrypted-preface" && conn.ConnectionState().NegotiatedProtocol != probeALPN {
 		return report, errors.New("peer does not support probe")
 	}
 	var header [9]byte

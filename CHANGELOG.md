@@ -1,3 +1,18 @@
+# v0.4.1-alpha
+
+- Add opt-in `protocol_negotiation: encrypted-preface` on both peers. TLS 1.3
+  and mutual certificate authentication remain required; the protocol is chosen
+  by a bounded six-byte exchange after TLS instead of public ALPN.
+- Retain the default ALPN wire format for existing 0.4.0 deployments.
+- Report TCP connection, TLS handshake and encrypted negotiation failures
+  separately; log server handshake/negotiation and reverse control errors.
+- Add direct/reverse/UDP payload and authenticated-probe coverage for the new
+  mode, invalid/cross-protocol prefaces, incompatible profiles, certificate
+  verification and handshake timeout cleanup.
+- WAN status: a user-reported OpenSSL TLS handshake succeeded without custom
+  ALPN after earlier custom-ALPN attempts timed out. This narrows the diagnosis;
+  the updated tunnel itself has not yet been verified on that WAN route.
+
 # 0.4.0-alpha
 
 - Add built-in loopback selftest without Go, Python or external servers.

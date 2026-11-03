@@ -32,7 +32,7 @@ class Target(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def run(binary, observer=None, reverse=False):
+def run(binary, observer=None, reverse=False, negotiation="alpn"):
     binary = str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="tunnellab-smoke-") as tmp:
         root = pathlib.Path(tmp)
@@ -54,6 +54,7 @@ def run(binary, observer=None, reverse=False):
             prefix = "reverse-" if reverse else ""
             path = demo / f"{prefix}{role}.json"
             cfg = json.loads(path.read_text())
+            cfg["protocol_negotiation"] = negotiation
             cfg["listen"] = ("" if reverse else relay_addr) if role == "relay" else edge_addr
             cfg["admin"] = relay_admin if role == "relay" else edge_admin
             if role == "relay":
@@ -124,5 +125,6 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--binary", default="bin/tunnellab-linux-amd64")
     parser.add_argument("--reverse", action="store_true")
+    parser.add_argument("--negotiation", choices=("alpn", "encrypted-preface"), default="alpn")
     args = parser.parse_args()
-    run(args.binary, reverse=args.reverse)
+    run(args.binary, reverse=args.reverse, negotiation=args.negotiation)

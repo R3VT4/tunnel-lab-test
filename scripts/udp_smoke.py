@@ -12,7 +12,7 @@ import urllib.request
 from smoke import free_port
 
 
-def run(binary):
+def run(binary, negotiation="alpn"):
     binary=str(pathlib.Path(binary).resolve())
     with tempfile.TemporaryDirectory(prefix="tunnellab-udp-") as tmp:
         root=pathlib.Path(tmp);demo=root/"demo"
@@ -38,7 +38,7 @@ def run(binary):
         paths={}
         for role in ("relay","edge"):
             path=demo/f"udp-{role}.json";paths[role]=path
-            cfg=json.loads(path.read_text());cfg["listen"]=peer if role=="relay" else edge
+            cfg=json.loads(path.read_text());cfg["protocol_negotiation"]=negotiation;cfg["listen"]=peer if role=="relay" else edge
             cfg["admin"]=relay_admin if role=="relay" else edge_admin
             if role=="relay":cfg["target"]="127.0.0.1:"+str(target.getsockname()[1])
             else:cfg["peer"]=peer
@@ -83,4 +83,6 @@ def run(binary):
 
 if __name__=="__main__":
     parser=argparse.ArgumentParser();parser.add_argument("--binary",default="bin/tunnellab-linux-amd64")
-    run(parser.parse_args().binary)
+    parser.add_argument("--negotiation",choices=("alpn","encrypted-preface"),default="alpn")
+    args=parser.parse_args()
+    run(args.binary,args.negotiation)

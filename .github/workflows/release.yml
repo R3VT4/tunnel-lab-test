@@ -28,6 +28,9 @@ jobs:
           python3 scripts/smoke.py
           python3 scripts/smoke.py --reverse
           python3 scripts/udp_smoke.py
+          python3 scripts/smoke.py --negotiation encrypted-preface
+          python3 scripts/smoke.py --reverse --negotiation encrypted-preface
+          python3 scripts/udp_smoke.py --negotiation encrypted-preface
           python3 scripts/install_smoke.py
       - name: Package binaries
         env:

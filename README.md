@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.0-alpha — prepared for deployment testing.**
+**Working name. v0.4.1-alpha — encrypted protocol negotiation for deployment testing.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -98,3 +98,31 @@ bash scripts/build-release.sh
 No repository URL, owner, or final project name is hard-coded.
 See [CHANGELOG.md](CHANGELOG.md) for the release scope and [VALIDATION.md](VALIDATION.md)
 for the actual checks and their limits.
+
+## Protocol negotiation compatibility
+
+The default remains ALPN for compatibility with v0.4.0-alpha. To omit the
+application protocol from the TLS ClientHello, install v0.4.1-alpha on BOTH
+servers and set this field in BOTH active instance configurations:
+
+```json
+"protocol_negotiation": "encrypted-preface"
+```
+
+The peers still use TLS 1.3, a private trusted CA, server hostname verification,
+and required client certificates. After TLS authentication, the client sends
+`TLAB`, version byte `1`, and a protocol-kind byte inside the encrypted stream;
+the server validates the requested kind and echoes the six-byte header before
+application data. Direct TCP, reverse control/data, UDP-over-TLS, and probes use
+the same negotiation mechanism. Invalid, unsupported, truncated, and mismatched
+negotiations fail closed. No automatic downgrade or plaintext fallback occurs.
+This is not an HTTP implementation, browser impersonation, or a guarantee that
+any particular network will permit the connection. SNI is unchanged.
+
+`probe` now identifies TCP-connect, TLS-handshake and encrypted-negotiation
+failures separately. Servers log TLS/negotiation failures, and reverse relays
+log control-session failures. Logs do not include credentials or data tickets.
+
+For an existing managed instance, edit `/etc/tunnellab/instances/NAME/config.json`
+and restart that instance. Editing the original imported JSON does not update
+its independent managed copy. A binary upgrade alone does not enable this mode.

@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -151,7 +152,7 @@ func (hub *reverseHub) serve(ctx context.Context, userLn, tunnelLn net.Listener,
 		results <- acceptBounded(ctx, userLn, c.MaxConnections, func() { s.rejected.Add(1) }, func(workerCtx context.Context, conn net.Conn) { hub.user(workerCtx, conn, c) })
 	}()
 	go func() {
-		results <- acceptBounded(ctx, tunnelLn, c.MaxConnections+8, func() { s.rejected.Add(1) }, func(workerCtx context.Context, conn net.Conn) { hub.transport(workerCtx, conn, tc) })
+		results <- acceptBounded(ctx, tunnelLn, c.MaxConnections+8, func() { s.rejected.Add(1) }, func(workerCtx context.Context, conn net.Conn) { hub.transport(workerCtx, conn, c, tc) })
 	}()
 	err := <-results
 	cancel()
@@ -218,7 +219,7 @@ func (h *reverseHub) user(ctx context.Context, incoming net.Conn, c Config) {
 	}
 }
 
-func (h *reverseHub) transport(ctx context.Context, raw net.Conn, tc *tls.Config) {
+func (h *reverseHub) transport(ctx context.Context, raw net.Conn, c Config, tc *tls.Config) {
 	handedOff := false
 	defer func() {
 		if !handedOff {
@@ -232,18 +233,25 @@ func (h *reverseHub) transport(ctx context.Context, raw net.Conn, tc *tls.Config
 	if err := conn.HandshakeContext(ctx); err != nil {
 		if ctx.Err() == nil {
 			h.stats.errors.Add(1)
+			log.Printf("TLS handshake from %s: %v", raw.RemoteAddr(), err)
 		}
 		return
 	}
+	protocol, err := serverProtocol(conn, c)
+	if err != nil {
+		h.stats.errors.Add(1)
+		log.Printf("protocol negotiation from %s: %v", raw.RemoteAddr(), err)
+		return
+	}
 	state := conn.ConnectionState()
-	if state.NegotiatedProtocol == probeALPN {
+	if protocol == probeALPN {
 		h.stats.probes.Add(1)
 		if err := handleProbe(ctx, conn); err != nil && ctx.Err() == nil {
 			h.stats.errors.Add(1)
 		}
 		return
 	}
-	if state.NegotiatedProtocol != reverseALPN || len(state.PeerCertificates) == 0 {
+	if protocol != reverseALPN || len(state.PeerCertificates) == 0 {
 		h.stats.errors.Add(1)
 		return
 	}
@@ -327,17 +335,7 @@ func (h *reverseHub) transport(ctx context.Context, raw net.Conn, tc *tls.Config
 }
 
 func dialReverse(ctx context.Context, c Config, tc *tls.Config) (*tls.Conn, error) {
-	d := tls.Dialer{NetDialer: &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}, Config: tc}
-	conn, err := d.DialContext(ctx, "tcp", c.Peer)
-	if err != nil {
-		return nil, err
-	}
-	t := conn.(*tls.Conn)
-	if t.ConnectionState().NegotiatedProtocol != reverseALPN {
-		t.Close()
-		return nil, errors.New("reverse ALPN mismatch")
-	}
-	return t, nil
+	return dialTransport(ctx, c, tc, reverseALPN)
 }
 
 // Reconnect applies only to the control channel. Active data connections have
@@ -356,6 +354,7 @@ func serveReverseRelay(ctx context.Context, c Config, tc *tls.Config, s *Stats) 
 		}
 		if err != nil {
 			s.errors.Add(1)
+			log.Printf("reverse control peer=%s: %v", c.Peer, err)
 		}
 		s.controlReconnects.Add(1)
 		if time.Since(start) > 10*time.Second {
