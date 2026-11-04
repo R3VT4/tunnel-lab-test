@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.4-alpha — direct connection operation diagnostics.**
+**Working name. v0.4.5-alpha — preserve Direct response draining after ENOTCONN half-close.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -187,3 +187,12 @@ cumulative breakdown (including peer disconnects), excluding idle and shutdown.
 Only the first observed terminating copy error is reported. These fields do
 not establish a remote root cause or imply that CloseWrite failures are harmless.
 Raw error strings, addresses and payloads are excluded. See DIAGNOSTICS_FA.md.
+
+
+## Direct half-close recovery (0.4.5-alpha)
+
+After clean EOF, plain-socket CloseWrite ENOTCONN no longer aborts the opposite
+copy. The bridge still waits for its EOF, error, shared idle deadline or process
+cancellation. `half_close_already_closed` records the handled condition; it does
+not imply a successful stream. TLS CloseWrite and read/write errors remain
+failures. Reverse/UDP are unchanged. See DIAGNOSTICS_FA.md for counter semantics.

@@ -67,20 +67,24 @@ func TestBridgePinpointsReadWriteAndCloseWrite(t *testing.T) {
 					source.payload = []byte("secret payload")
 				case "close_write":
 					source.readErr = io.EOF
-					broken.closeWriteErr = syscall.ENOTCONN
+					broken.closeWriteErr = syscall.EBADF
+				}
+				wantErr, wantCode := error(syscall.ENOTCONN), "not_connected"
+				if operation == "close_write" {
+					wantErr, wantCode = syscall.EBADF, "bad_file_descriptor"
 				}
 				s := newStats()
 				result := bridgeReportSides(context.Background(), l, r, time.Second, s, true, "tunnel", "target")
-				if result.reason != "io_error" || !errors.Is(result.err, syscall.ENOTCONN) {
+				if result.reason != "io_error" || !errors.Is(result.err, wantErr) {
 					t.Fatalf("primary failure lost: %+v", result)
 				}
 				s.transferFinished(result)
 				d := s.diagnostics.snapshot()
 				event := d["last_error"].(*connectionEvent)
-				if event.Side != side || event.Operation != operation || event.ErrorCode != "not_connected" {
+				if event.Side != side || event.Operation != operation || event.ErrorCode != wantCode {
 					t.Fatalf("wrong attribution: %+v", event)
 				}
-				if d["transfer_failure_counts"].(map[string]int64)[side+"."+operation+".not_connected"] != 1 || s.diagnostics.transferFailures.Load() != 1 {
+				if d["transfer_failure_counts"].(map[string]int64)[side+"."+operation+"."+wantCode] != 1 || s.diagnostics.transferFailures.Load() != 1 {
 					t.Fatal("failure totals disagree")
 				}
 				if s.diagnostics.halfClosedActive.Load() != 0 {
