@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-var version = "0.4.5-alpha"
+var version = "0.5.0-alpha"
 
 func main() {
 	if err := command(os.Args[1:]); err != nil {
@@ -97,7 +97,11 @@ func command(args []string) error {
 			defer udp.Close()
 		}
 		if c.Mode != "reverse-relay" && c.Mode != "udp-edge" {
-			ln, err = net.Listen("tcp", c.Listen)
+			if c.Transport == "quic" && c.Mode == "relay" {
+				ln, err = listenQUIC(c.Listen, c, tc)
+			} else {
+				ln, err = net.Listen("tcp", c.Listen)
+			}
 			if err != nil {
 				return err
 			}
@@ -116,6 +120,7 @@ func command(args []string) error {
 		}
 		defer admin.Close()
 		s := newStats()
+		s.quicEnabled.Store(c.Transport == "quic")
 		server := &http.Server{Handler: adminHandler(c, s), ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 5 * time.Second, WriteTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second, MaxHeaderBytes: 8192}
 		adminDone := make(chan error, 1)
 		go func() {

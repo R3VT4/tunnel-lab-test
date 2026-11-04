@@ -1,3 +1,20 @@
+# v0.5.0-alpha
+
+- Add opt-in Direct TCP streams over QUIC/UDP, using pinned quic-go v0.65.0.
+  Existing configs retain TCP. QUIC uses a dedicated mandatory ALPN, mTLS 1.3,
+  optional fully verified SNI omission and bounded encrypted stream negotiation.
+- Reuse a session for independent streams; replace a dead session for new flows
+  without replaying active flows. Keep FIN delivery alive on the shared session;
+  cancel only the failed stream. Disable 0-RTT, DATAGRAM and incoming uni streams.
+- Bound authenticated sessions, accepted flows and receive windows. Keep stream
+  application-idle deadlines distinct from QUIC connection timeouts. Report
+  transport/scope and QUIC-specific setup and stream error categories.
+- Add UDP-aware managed port checks, QUIC probe labelling and built-in selftest,
+  compiled smoke/CI coverage, deployment guidance and third-party notices.
+- Local tests cover concurrent binary transfers/half-close, authentication,
+  stream isolation, new-flow reconnect, capacity, malformed preface, idle and
+  shutdown. QUIC Reverse, native UDP payloads and WAN validation are pending.
+
 # v0.4.5-alpha
 
 - On Direct plain-socket CloseWrite returning ENOTCONN after clean copy EOF,

@@ -79,7 +79,7 @@ func configBindings(c Config) []binding {
 	add("tcp", c.Admin)
 	if c.Mode != "reverse-relay" {
 		network := "tcp"
-		if c.Mode == "udp-edge" {
+		if c.Mode == "udp-edge" || (c.Transport == "quic" && c.Mode == "relay") {
 			network = "udp"
 		}
 		add(network, c.Listen)

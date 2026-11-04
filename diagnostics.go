@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	quic "github.com/quic-go/quic-go"
 	"io"
 	"net"
 	"sync"
@@ -33,6 +34,8 @@ type connectionDiagnostics struct {
 	setupFailures          atomic.Int64
 	tcpFailures            atomic.Int64
 	tlsFailures            atomic.Int64
+	quicFailures           atomic.Int64
+	quicStreamFailures     atomic.Int64
 	protocolFailures       atomic.Int64
 	targetFailures         atomic.Int64
 	probeFailures          atomic.Int64
@@ -99,7 +102,7 @@ func (d *connectionDiagnostics) snapshot() map[string]any {
 		"half_closed_active": d.halfClosedActive.Load(), "peak_active": d.peakActive.Load(),
 		"half_close_already_closed": d.halfCloseAlreadyClosed.Load(),
 		"setup_failures":            d.setupFailures.Load(), "probe_failures": d.probeFailures.Load(),
-		"setup_failure_counts": map[string]int64{"tcp_connect": d.tcpFailures.Load(), "tls_handshake": d.tlsFailures.Load(), "protocol_negotiation": d.protocolFailures.Load(), "target_connect": d.targetFailures.Load()},
+		"setup_failure_counts": map[string]int64{"tcp_connect": d.tcpFailures.Load(), "tls_handshake": d.tlsFailures.Load(), "quic_handshake": d.quicFailures.Load(), "quic_stream": d.quicStreamFailures.Load(), "protocol_negotiation": d.protocolFailures.Load(), "target_connect": d.targetFailures.Load()},
 		"idle_timeouts":        d.idleTimeouts.Load(), "peer_disconnects": d.peerDisconnects.Load(),
 		"transfer_failures": d.transferFailures.Load(), "shutdown_closed": d.shutdownClosed.Load(),
 		"last_error": last, "recent_events": recent,
@@ -119,6 +122,22 @@ func atStage(stage string, err error) error  { return &transportStageError{stage
 func errorKind(err error) string {
 	if errors.Is(err, context.Canceled) {
 		return "canceled"
+	}
+	var idle *quic.IdleTimeoutError
+	if errors.As(err, &idle) {
+		return "quic_connection_timeout"
+	}
+	var stream *quic.StreamError
+	if errors.As(err, &stream) {
+		return "quic_stream_reset"
+	}
+	var application *quic.ApplicationError
+	if errors.As(err, &application) {
+		return "quic_connection_closed"
+	}
+	var transport *quic.TransportError
+	if errors.As(err, &transport) {
+		return "quic_transport_error"
 	}
 	var ne net.Error
 	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
@@ -158,6 +177,10 @@ func (s *Stats) setupFailed(ctx context.Context, stage string, err error) {
 		s.diagnostics.tcpFailures.Add(1)
 	case "tls_handshake":
 		s.diagnostics.tlsFailures.Add(1)
+	case "quic_handshake":
+		s.diagnostics.quicFailures.Add(1)
+	case "quic_stream":
+		s.diagnostics.quicStreamFailures.Add(1)
 	case "protocol_negotiation":
 		s.diagnostics.protocolFailures.Add(1)
 	case "target_connect":

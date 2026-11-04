@@ -61,7 +61,7 @@ func localChecks(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	var checks []string
-	for _, mode := range []string{"direct", "reverse", "udp"} {
+	for _, mode := range []string{"direct", "reverse", "udp", "quic"} {
 		if err = localModeCheck(ctx, e, r, mode); err != nil {
 			return nil, fmt.Errorf("selftest %s: %w", mode, err)
 		}
@@ -178,11 +178,24 @@ func localModeCheck(parent context.Context, e, r Config, mode string) (result er
 		if err != nil {
 			return err
 		}
-		relay, err := newTCP()
+		var relay net.Listener
+		if mode == "quic" {
+			e.Transport, r.Transport, e.OmitSNI = "quic", "quic", true
+			rtc, tlsErr := tlsConfig(r)
+			if tlsErr != nil {
+				return tlsErr
+			}
+			relay, err = listenQUIC("127.0.0.1:0", r, rtc)
+			if err == nil {
+				closers = append(closers, relay)
+			}
+		} else {
+			relay, err = newTCP()
+		}
 		if err != nil {
 			return err
 		}
-		if mode == "direct" {
+		if mode == "direct" || mode == "quic" {
 			e.Peer = relay.Addr().String()
 			etc, err := tlsConfig(e)
 			if err != nil {

@@ -135,7 +135,7 @@ func TestBuiltinLocalChecks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(checks) != 3 {
+	if len(checks) != 4 {
 		t.Fatal("incomplete built-in test")
 	}
 }

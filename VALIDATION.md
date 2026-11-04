@@ -140,3 +140,20 @@ reset, idle timeout, process cancellation and unchanged uninstrumented legacy
 bridge behavior. Read/write ENOTCONN and other CloseWrite failures remain covered
 by the operation-attribution test. This is a local regression, not proof of data
 loss in historical WAN sessions or a benchmark.
+
+
+## v0.5.0-alpha experimental QUIC
+
+Nine additional top-level tests cover concurrent Direct binary streams and exact
+byte counts, half-close and authenticated probe, sibling reset isolation,
+replacement of a dead session only for new flows, wrong CA/name/ALPN and absent
+client certificate, malformed-stream recovery, stream credit capacity/release,
+idle/shutdown, configuration/UDP listener guards, and distinct QUIC path timeout
+classification. Selftest now includes a fourth QUIC payload/probe check.
+The compiled smoke script accepts --transport quic --omit-sni; CI runs it in
+addition to the unchanged TCP/reverse/UDP-over-TLS modes.
+
+These checks are loopback validation, not a performance comparison or evidence
+of WAN UDP reachability. QUIC is provided by a pinned external dependency whose
+licences are included; no independent security audit is claimed. See QUIC_FA.md
+for session/window bounds and status counter scope.

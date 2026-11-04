@@ -13,6 +13,7 @@ import (
 )
 
 type Config struct {
+	Transport           string `json:"transport,omitempty"`
 	ProtocolNegotiation string `json:"protocol_negotiation,omitempty"`
 	OmitSNI             bool   `json:"omit_sni,omitempty"`
 	Mode                string `json:"mode"`
@@ -45,6 +46,17 @@ func loadConfig(path string) (Config, error) {
 	var extra any
 	if err = d.Decode(&extra); err != io.EOF {
 		return c, errors.New("configuration must contain exactly one JSON object")
+	}
+	if c.Transport != "" && c.Transport != "tcp" && c.Transport != "quic" {
+		return c, errors.New("transport must be tcp or quic")
+	}
+	if c.Transport == "quic" {
+		if c.Mode != "edge" && c.Mode != "relay" {
+			return c, errors.New("QUIC currently supports direct edge/relay only")
+		}
+		if c.ProtocolNegotiation == "encrypted-preface" {
+			return c, errors.New("QUIC requires its dedicated ALPN; encrypted-preface is TCP-only")
+		}
 	}
 	if c.Mode != "edge" && c.Mode != "relay" && c.Mode != "reverse-edge" && c.Mode != "reverse-relay" && c.Mode != "udp-edge" && c.Mode != "udp-relay" {
 		return c, errors.New("unknown tunnel mode")
@@ -191,6 +203,9 @@ func tlsConfig(c Config) (*tls.Config, error) {
 	}
 	if c.ProtocolNegotiation == "encrypted-preface" {
 		t.NextProtos = nil
+	}
+	if c.Transport == "quic" {
+		t.NextProtos = []string{quicALPN}
 	}
 	return t, nil
 }
