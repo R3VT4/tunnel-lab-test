@@ -5,11 +5,49 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
+
+func TestManagedFileModesSurviveRestrictiveUmask(t *testing.T) {
+	if os.Getenv("TUNNELLAB_PERMISSION_CHILD") != "1" {
+		cmd := exec.Command(os.Args[0], "-test.run=^TestManagedFileModesSurviveRestrictiveUmask$")
+		cmd.Env = append(os.Environ(), "TUNNELLAB_PERMISSION_CHILD=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("umask regression failed: %v\n%s", err, output)
+		}
+		return
+	}
+	// Change umask only in this isolated process, never alongside other tests.
+	syscall.Umask(0077)
+	e, _ := testConfigs(t)
+	for _, gid := range []int{-1, os.Getgid()} {
+		base := filepath.Join(t.TempDir(), "instances")
+		if err := addInstance(base, "test", configFile(t, e), gid); err != nil {
+			t.Fatal(err)
+		}
+		want := os.FileMode(0600)
+		if gid >= 0 {
+			want = 0640
+		}
+		for _, name := range []string{"config.json", "ca.crt", "identity.crt", "identity.key"} {
+			info, err := os.Stat(filepath.Join(base, "test", name))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if info.Mode().Perm() != want {
+				t.Fatalf("%s mode %o, want %o", name, info.Mode().Perm(), want)
+			}
+			if gid >= 0 && int(info.Sys().(*syscall.Stat_t).Gid) != gid {
+				t.Fatal("wrong service group")
+			}
+		}
+	}
+}
 
 func configFile(t *testing.T, c Config) string {
 	t.Helper()
