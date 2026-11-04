@@ -1,3 +1,18 @@
+# v0.4.4-alpha
+
+- Attribute Direct bridge failures to client/tunnel/target and read/write/close_write.
+  Preserve the first observed terminating copy failure and errors.Is/As behavior;
+  do not substitute secondary failures caused by bridge cleanup.
+- Include fixed symbolic error codes and a cumulative transfer_failure_counts
+  breakdown in bounded status events. Raw errors, payloads and addresses are
+  excluded. Existing error categories and limits are retained, including failures
+  reported by CloseWrite; no historical WAN error is declared harmless.
+- Keep clean EOF unwrapped for io.Copy and preserve short-write detection,
+  half-close responses, cancellation and idle behavior. The read-only page
+  displays the additional last-error fields when present.
+- Add fault-injection attribution and safe-code tests. No wire protocol,
+  authentication, configuration or transport additions. WAN validation pending.
+
 # v0.4.3-alpha
 
 - Instrument Direct TCP setup/forwarding/probe/half-close phases, peak active

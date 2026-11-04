@@ -15,30 +15,34 @@ import (
 // Events deliberately contain fixed categories, not raw errors, payloads,
 // addresses, certificates or reverse tickets. The history has a fixed bound.
 type connectionEvent struct {
-	Time  string `json:"time"`
-	Stage string `json:"stage"`
-	Kind  string `json:"kind"`
+	Time      string `json:"time"`
+	Stage     string `json:"stage"`
+	Kind      string `json:"kind"`
+	Side      string `json:"side,omitempty"`
+	Operation string `json:"operation,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
 }
 
 type connectionDiagnostics struct {
-	setupActive      atomic.Int64
-	forwardingActive atomic.Int64
-	probeActive      atomic.Int64
-	halfClosedActive atomic.Int64
-	peakActive       atomic.Int64
-	setupFailures    atomic.Int64
-	tcpFailures      atomic.Int64
-	tlsFailures      atomic.Int64
-	protocolFailures atomic.Int64
-	targetFailures   atomic.Int64
-	probeFailures    atomic.Int64
-	idleTimeouts     atomic.Int64
-	peerDisconnects  atomic.Int64
-	transferFailures atomic.Int64
-	shutdownClosed   atomic.Int64
-	mu               sync.Mutex
-	lastError        *connectionEvent
-	recent           []connectionEvent
+	setupActive           atomic.Int64
+	forwardingActive      atomic.Int64
+	probeActive           atomic.Int64
+	halfClosedActive      atomic.Int64
+	peakActive            atomic.Int64
+	setupFailures         atomic.Int64
+	tcpFailures           atomic.Int64
+	tlsFailures           atomic.Int64
+	protocolFailures      atomic.Int64
+	targetFailures        atomic.Int64
+	probeFailures         atomic.Int64
+	idleTimeouts          atomic.Int64
+	peerDisconnects       atomic.Int64
+	transferFailures      atomic.Int64
+	shutdownClosed        atomic.Int64
+	mu                    sync.Mutex
+	lastError             *connectionEvent
+	recent                []connectionEvent
+	transferFailureCounts map[string]int64
 }
 
 func (d *connectionDiagnostics) noteActive(n int64) {
@@ -51,8 +55,19 @@ func (d *connectionDiagnostics) noteActive(n int64) {
 
 func (d *connectionDiagnostics) event(stage, kind string, failure bool) {
 	e := connectionEvent{Time: time.Now().UTC().Format(time.RFC3339Nano), Stage: stage, Kind: kind}
+	d.recordEvent(e, failure, false)
+}
+
+func (d *connectionDiagnostics) recordEvent(e connectionEvent, failure, transferFailure bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if transferFailure {
+		if d.transferFailureCounts == nil {
+			d.transferFailureCounts = make(map[string]int64)
+		}
+		// Every component comes from a fixed internal vocabulary.
+		d.transferFailureCounts[e.Side+"."+e.Operation+"."+e.ErrorCode]++
+	}
 	if failure {
 		copy := e
 		d.lastError = &copy
@@ -72,6 +87,10 @@ func (d *connectionDiagnostics) snapshot() map[string]any {
 		last = &copy
 	}
 	recent := append([]connectionEvent{}, d.recent...)
+	counts := make(map[string]int64, len(d.transferFailureCounts))
+	for key, count := range d.transferFailureCounts {
+		counts[key] = count
+	}
 	d.mu.Unlock()
 	return map[string]any{
 		"scope": "direct_tcp", "setup_active": d.setupActive.Load(),
@@ -82,6 +101,7 @@ func (d *connectionDiagnostics) snapshot() map[string]any {
 		"idle_timeouts":        d.idleTimeouts.Load(), "peer_disconnects": d.peerDisconnects.Load(),
 		"transfer_failures": d.transferFailures.Load(), "shutdown_closed": d.shutdownClosed.Load(),
 		"last_error": last, "recent_events": recent,
+		"transfer_failure_counts": counts,
 	}
 }
 
@@ -149,6 +169,64 @@ type bridgeResult struct {
 	err    error
 }
 
+// These wrappers retain errors.Is/As and carry no payload or endpoint address.
+type bridgeIOError struct {
+	side, operation string
+	err             error
+}
+
+func (e *bridgeIOError) Error() string { return e.err.Error() }
+func (e *bridgeIOError) Unwrap() error { return e.err }
+func atBridgeIO(side, operation string, err error) error {
+	return &bridgeIOError{side: side, operation: operation, err: err}
+}
+
+func bridgeErrorCode(err error) string {
+	// Symbolic codes only: unknown error strings must never reach the API.
+	for _, entry := range []struct {
+		err  error
+		code string
+	}{
+		{syscall.ENOTCONN, "not_connected"},
+		{syscall.EBADF, "bad_file_descriptor"},
+		{syscall.ESHUTDOWN, "socket_shutdown"},
+		{syscall.ECONNABORTED, "connection_aborted"},
+		{syscall.ECONNRESET, "connection_reset"},
+		{syscall.EPIPE, "broken_pipe"},
+		{net.ErrClosed, "net_closed"},
+		{io.ErrClosedPipe, "closed_pipe"},
+		{io.ErrShortWrite, "short_write"},
+	} {
+		if errors.Is(err, entry.err) {
+			return entry.code
+		}
+	}
+	return errorKind(err)
+}
+
+func (d *connectionDiagnostics) transferEvent(result bridgeResult, failure bool) {
+	e := connectionEvent{Time: time.Now().UTC().Format(time.RFC3339Nano), Stage: "transfer", Kind: result.reason}
+	var detail *bridgeIOError
+	if errors.As(result.err, &detail) {
+		switch detail.side {
+		case "client", "tunnel", "target", "left", "right":
+			e.Side = detail.side
+		default:
+			e.Side = "unknown"
+		}
+		switch detail.operation {
+		case "read", "write", "close_write":
+			e.Operation = detail.operation
+		default:
+			e.Operation = "unknown"
+		}
+	} else {
+		e.Side, e.Operation = "unknown", "unknown"
+	}
+	e.ErrorCode = bridgeErrorCode(result.err)
+	d.recordEvent(e, failure, failure)
+}
+
 func (s *Stats) transferFinished(result bridgeResult) {
 	switch result.reason {
 	case "eof":
@@ -157,14 +235,15 @@ func (s *Stats) transferFinished(result bridgeResult) {
 		s.diagnostics.shutdownClosed.Add(1)
 	case "timeout":
 		s.diagnostics.idleTimeouts.Add(1)
-		s.diagnostics.event("transfer", "idle_timeout", false)
+		result.reason = "idle_timeout"
+		s.diagnostics.transferEvent(result, false)
 	case "peer_disconnect":
 		s.errors.Add(1)
 		s.diagnostics.peerDisconnects.Add(1)
-		s.diagnostics.event("transfer", "peer_disconnect", true)
+		s.diagnostics.transferEvent(result, true)
 	default:
 		s.errors.Add(1)
 		s.diagnostics.transferFailures.Add(1)
-		s.diagnostics.event("transfer", result.reason, true)
+		s.diagnostics.transferEvent(result, true)
 	}
 }
