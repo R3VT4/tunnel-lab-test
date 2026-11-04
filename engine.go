@@ -14,6 +14,7 @@ import (
 )
 
 type Stats struct {
+	quicEnabled        atomic.Bool
 	diagnostics        connectionDiagnostics
 	active             atomic.Int64
 	accepted           atomic.Int64
@@ -37,6 +38,13 @@ func (s *Stats) snapshot(mode string) map[string]any {
 	out := map[string]any{"version": version, "mode": mode, "uptime_seconds": int(time.Since(s.started).Seconds()), "active": s.active.Load(), "accepted": s.accepted.Load(), "rejected": s.rejected.Load(), "errors": s.errors.Load(), "completed": s.completed.Load(), "forwarded_bytes": s.forwarded.Load(), "returned_bytes": s.returned.Load(), "control_connected": s.controlConnected.Load(), "control_reconnects": s.controlReconnects.Load(), "pending": s.pending.Load(), "datagrams_forwarded": s.datagramsForwarded.Load(), "datagrams_returned": s.datagramsReturned.Load(), "local_datagram_drops": s.dropped.Load(), "probe_runs": s.probes.Load()}
 	if mode == "edge" || mode == "relay" {
 		out["connection_diagnostics"] = s.diagnostics.snapshot()
+		if s.quicEnabled.Load() {
+			out["connection_diagnostics"].(map[string]any)["scope"] = "direct_quic_streams"
+		}
+	}
+	out["transport"] = "tcp"
+	if s.quicEnabled.Load() {
+		out["transport"] = "quic"
 	}
 	return out
 }
@@ -47,6 +55,12 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 	ctx, cancel := context.WithCancel(ctx)
 	stop := context.AfterFunc(ctx, func() { listener.Close() })
 	defer stop()
+	var pool *quicPool
+	if c.Transport == "quic" {
+		s.quicEnabled.Store(true)
+		pool = &quicPool{config: c, tls: tc}
+		defer pool.Close()
+	}
 	sem := make(chan struct{}, c.MaxConnections)
 	var wg sync.WaitGroup
 	defer func() { cancel(); wg.Wait() }()
@@ -98,19 +112,31 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 			setupCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 			defer cancel()
 			if c.Mode == "relay" {
-				t := tls.Server(incoming, tc)
-				defer t.Close()
-				t.SetDeadline(time.Now().Add(setupTimeout))
-				if err := t.HandshakeContext(setupCtx); err != nil {
-					s.setupFailed(ctx, "tls_handshake", err)
-					log.Printf("TLS handshake from %s: %v", incoming.RemoteAddr(), err)
-					return
-				}
-				protocol, err := serverProtocol(t, c)
-				if err != nil {
-					s.setupFailed(ctx, "protocol_negotiation", err)
-					log.Printf("protocol negotiation from %s: %v", incoming.RemoteAddr(), err)
-					return
+				var protocol string
+				var err error
+				if c.Transport == "quic" {
+					left.SetDeadline(time.Now().Add(setupTimeout))
+					protocol, err = serverQUICProtocol(left)
+					if err != nil {
+						s.setupFailed(ctx, "protocol_negotiation", err)
+						return
+					}
+				} else {
+					t := tls.Server(incoming, tc)
+					defer t.Close()
+					t.SetDeadline(time.Now().Add(setupTimeout))
+					if err := t.HandshakeContext(setupCtx); err != nil {
+						s.setupFailed(ctx, "tls_handshake", err)
+						log.Printf("TLS handshake from %s: %v", incoming.RemoteAddr(), err)
+						return
+					}
+					protocol, err = serverProtocol(t, c)
+					if err != nil {
+						s.setupFailed(ctx, "protocol_negotiation", err)
+						log.Printf("protocol negotiation from %s: %v", incoming.RemoteAddr(), err)
+						return
+					}
+					left = t
 				}
 				if protocol == probeALPN {
 					setupDone()
@@ -118,10 +144,12 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 					probeOpen = true
 					cancel()
 					s.probes.Add(1)
-					if err := handleProbe(ctx, t); err != nil && ctx.Err() == nil {
+					if err := handleProbe(ctx, left); err != nil && ctx.Err() == nil {
 						s.errors.Add(1)
 						s.diagnostics.probeFailures.Add(1)
 						s.diagnostics.event("probe", errorKind(err), true)
+					} else if q, ok := left.(*quicStreamConn); ok {
+						q.CloseWrite()
 					}
 					return
 				}
@@ -129,14 +157,17 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 					s.setupFailed(ctx, "protocol_negotiation", io.ErrUnexpectedEOF)
 					return
 				}
-				t.SetDeadline(time.Time{})
-				left = t
+				left.SetDeadline(time.Time{})
 			}
 			var right net.Conn
 			var dialErr error
 			dialer := &net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 			if c.Mode == "edge" {
-				right, dialErr = dialTransport(setupCtx, c, tc, "tunnellab/0.1")
+				if pool != nil {
+					right, dialErr = pool.Open(setupCtx, "tunnellab/0.1")
+				} else {
+					right, dialErr = dialTransport(setupCtx, c, tc, "tunnellab/0.1")
+				}
 			} else {
 				right, dialErr = dialer.DialContext(setupCtx, "tcp", c.Target)
 			}
@@ -239,7 +270,8 @@ func bridgeReportSides(ctx context.Context, left, right net.Conn, idle time.Dura
 				// Keep waiting for EOF/error/idle/cancel on that copy. TLS close
 				// failures and actual read/write failures remain fatal.
 				_, encrypted := dst.Conn.(*tls.Conn)
-				if observe && !encrypted && errors.Is(err, syscall.ENOTCONN) {
+				_, quicStream := dst.Conn.(*quicStreamConn)
+				if observe && !encrypted && !quicStream && errors.Is(err, syscall.ENOTCONN) {
 					s.diagnostics.halfCloseAlreadyClosed.Add(1)
 					s.diagnostics.transferEvent(bridgeResult{reason: "half_close_already_closed", err: atBridgeIO(dst.side, "close_write", err)}, false)
 					err = nil

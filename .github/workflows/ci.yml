@@ -34,6 +34,7 @@ jobs:
           python3 scripts/smoke.py --negotiation encrypted-preface --omit-sni
           python3 scripts/smoke.py --reverse --negotiation encrypted-preface --omit-sni
           python3 scripts/udp_smoke.py --negotiation encrypted-preface --omit-sni
+          python3 scripts/smoke.py --transport quic --omit-sni
           python3 scripts/install_smoke.py
       - name: Check release packaging
         run: bash scripts/build-release.sh

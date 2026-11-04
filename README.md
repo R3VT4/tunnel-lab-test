@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.5-alpha — preserve Direct response draining after ENOTCONN half-close.**
+**Working name. v0.5.0-alpha — experimental Direct TCP streams over QUIC/UDP.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -9,8 +9,9 @@ UDP-over-TLS, mutual TLS authentication, a read-only local status page, and
 an authenticated peer-measurement command. The aim is useful operation and
 measurable behavior, with further transport and path-management work to follow.
 
-UDP is framed inside TCP/TLS: this is not native UDP or QUIC. TCP head-of-line
-blocking applies. Reverse UDP and data-session migration are not implemented.
+The udp-edge/udp-relay modes frame UDP payloads inside TCP/TLS, with TCP
+head-of-line blocking. Direct TCP forwarding can separately opt into experimental
+QUIC/UDP. Reverse UDP and data-session migration are not implemented.
 There is no claim of better WAN performance than other tunnel tools.
 
 ## Source-only ZIP
@@ -50,7 +51,7 @@ CGO_ENABLED=0 go build -buildvcs=false -trimpath -o tunnellab .
 ./tunnellab selftest
 ```
 
-The application has no third-party Go dependencies. Production readiness,
+The QUIC transport uses pinned quic-go and Go x/ dependencies (see THIRD_PARTY_NOTICES.md). Production readiness,
 long-running behavior and real network performance remain to be established.
 
 ## Install and manage
@@ -196,3 +197,21 @@ copy. The bridge still waits for its EOF, error, shared idle deadline or process
 cancellation. `half_close_already_closed` records the handled condition; it does
 not imply a successful stream. TLS CloseWrite and read/write errors remain
 failures. Reverse/UDP are unchanged. See DIAGNOSTICS_FA.md for counter semantics.
+
+
+## Experimental QUIC transport (0.5.0-alpha)
+
+Set `transport: "quic"` only on a separate Direct edge/relay pair. Edge accepts
+TCP user connections; relay listens on UDP. Each user flow gets a bidirectional
+stream on a reused, mutually authenticated QUIC session. The dedicated ALPN is
+`tunnellab-quic/0.1`; `encrypted-preface` is TCP-only and rejected for QUIC.
+Client-only omit_sni retains full hostname verification. QUIC is not HTTP/3 or
+traffic camouflage. Native UDP payloads and QUIC Reverse are not implemented.
+
+Existing configs default to TCP. Create new managed instances/ports for WAN
+comparison instead of changing the working pair. A dead session is replaced
+for a new flow; active streams are not replayed or migrated by Tunnel Lab.
+0-RTT, DATAGRAM and incoming unidirectional streams are disabled. Sessions and
+streams have separate bounds; see QUIC_FA.md for exact limits and deployment.
+`selftest` includes QUIC; `probe` reports `quic/udp/tls1.3` and `quic_setup_ms`.
+This experimental transport has passed local tests, not the user's WAN route.

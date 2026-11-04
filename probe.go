@@ -21,19 +21,20 @@ const probeALPN = "tunnellab-probe/0.3"
 const maxProbeBytes = 16 * 1024 * 1024
 
 type ProbeReport struct {
-	Version            string  `json:"version"`
-	Transport          string  `json:"transport"`
-	Scope              string  `json:"scope"`
-	PacketLossMeasured bool    `json:"packet_loss_measured"`
-	SetupMS            float64 `json:"tcp_tls_setup_ms"`
-	RTTMinMS           float64 `json:"application_rtt_min_ms"`
-	RTTMeanMS          float64 `json:"application_rtt_mean_ms"`
-	RTTMaxMS           float64 `json:"application_rtt_max_ms"`
-	RTTStddevMS        float64 `json:"application_rtt_stddev_ms"`
-	Rounds             int     `json:"rounds"`
-	BytesEachWay       int     `json:"bytes_each_way"`
-	DownloadMbps       float64 `json:"download_goodput_mbps"`
-	UploadMbps         float64 `json:"upload_confirmed_goodput_mbps"`
+	Version            string   `json:"version"`
+	Transport          string   `json:"transport"`
+	Scope              string   `json:"scope"`
+	PacketLossMeasured bool     `json:"packet_loss_measured"`
+	SetupMS            float64  `json:"tcp_tls_setup_ms,omitempty"`
+	QUICSetupMS        *float64 `json:"quic_setup_ms,omitempty"`
+	RTTMinMS           float64  `json:"application_rtt_min_ms"`
+	RTTMeanMS          float64  `json:"application_rtt_mean_ms"`
+	RTTMaxMS           float64  `json:"application_rtt_max_ms"`
+	RTTStddevMS        float64  `json:"application_rtt_stddev_ms"`
+	Rounds             int      `json:"rounds"`
+	BytesEachWay       int      `json:"bytes_each_way"`
+	DownloadMbps       float64  `json:"download_goodput_mbps"`
+	UploadMbps         float64  `json:"upload_confirmed_goodput_mbps"`
 }
 
 // Probe is authenticated on the existing TLS listener and bounded to 32 MiB
@@ -103,16 +104,30 @@ func runProbe(ctx context.Context, c Config, tc *tls.Config, size, rounds int) (
 		return report, errors.New("probe requires an edge, udp-edge or reverse-relay config")
 	}
 	start := time.Now()
-	conn, err := dialTransport(ctx, c, tc, probeALPN)
+	var conn net.Conn
+	var err error
+	if c.Transport == "quic" {
+		pool := &quicPool{config: c, tls: tc}
+		defer pool.Close()
+		conn, err = pool.Open(ctx, probeALPN)
+		report.Transport = "quic/udp/tls1.3"
+	} else {
+		conn, err = dialTransport(ctx, c, tc, probeALPN)
+	}
 	if err != nil {
 		return report, err
 	}
 	defer conn.Close()
 	report.SetupMS = float64(time.Since(start)) / float64(time.Millisecond)
+	if c.Transport == "quic" {
+		value := report.SetupMS
+		report.QUICSetupMS = &value
+		report.SetupMS = 0
+	}
 	stop := context.AfterFunc(ctx, func() { conn.Close() })
 	defer stop()
 	conn.SetDeadline(time.Now().Add(30 * time.Second))
-	if c.ProtocolNegotiation != "encrypted-preface" && conn.ConnectionState().NegotiatedProtocol != probeALPN {
+	if t, ok := conn.(*tls.Conn); ok && c.ProtocolNegotiation != "encrypted-preface" && t.ConnectionState().NegotiatedProtocol != probeALPN {
 		return report, errors.New("peer does not support probe")
 	}
 	var header [9]byte
