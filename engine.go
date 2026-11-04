@@ -152,7 +152,11 @@ func serve(ctx context.Context, listener net.Listener, c Config, tc *tls.Config,
 			setupDone()
 			s.diagnostics.forwardingActive.Add(1)
 			forwardingOpen = true
-			s.transferFinished(bridgeReport(ctx, left, right, time.Duration(c.IdleSeconds)*time.Second, s, true))
+			leftSide, rightSide := "client", "tunnel"
+			if c.Mode == "relay" {
+				leftSide, rightSide = "tunnel", "target"
+			}
+			s.transferFinished(bridgeReportSides(ctx, left, right, time.Duration(c.IdleSeconds)*time.Second, s, true, leftSide, rightSide))
 		}()
 	}
 }
@@ -163,6 +167,7 @@ type activityConn struct {
 	net.Conn
 	touch   func()
 	counter *atomic.Int64
+	side    string
 }
 
 func (c activityConn) Read(p []byte) (int, error) {
@@ -170,13 +175,23 @@ func (c activityConn) Read(p []byte) (int, error) {
 	if n > 0 {
 		c.touch()
 	}
+	// io.Copy recognizes a clean EOF by identity. Do not wrap that sentinel.
+	if e != nil && e != io.EOF {
+		e = atBridgeIO(c.side, "read", e)
+	}
 	return n, e
 }
 func (c activityConn) Write(p []byte) (int, error) {
 	n, e := c.Conn.Write(p)
+	if e == nil && n < len(p) {
+		e = io.ErrShortWrite
+	}
 	if n > 0 {
 		c.counter.Add(int64(n))
 		c.touch()
+	}
+	if e != nil {
+		e = atBridgeIO(c.side, "write", e)
 	}
 	return n, e
 }
@@ -186,6 +201,10 @@ func bridge(ctx context.Context, left, right net.Conn, idle time.Duration, s *St
 }
 
 func bridgeReport(ctx context.Context, left, right net.Conn, idle time.Duration, s *Stats, observe bool) bridgeResult {
+	return bridgeReportSides(ctx, left, right, idle, s, observe, "left", "right")
+}
+
+func bridgeReportSides(ctx context.Context, left, right net.Conn, idle time.Duration, s *Stats, observe bool, leftSide, rightSide string) bridgeResult {
 	closeBoth := func() { left.Close(); right.Close() }
 	stop := context.AfterFunc(ctx, closeBoth)
 	defer stop()
@@ -198,8 +217,8 @@ func bridgeReport(ctx context.Context, left, right net.Conn, idle time.Duration,
 		right.SetDeadline(deadline)
 	}
 	touch()
-	l := activityConn{left, touch, &s.returned}
-	r := activityConn{right, touch, &s.forwarded}
+	l := activityConn{left, touch, &s.returned, leftSide}
+	r := activityConn{right, touch, &s.forwarded, rightSide}
 	results := make(chan error, 2)
 	var halfOnce sync.Once
 	halfClosed := false
@@ -213,6 +232,9 @@ func bridgeReport(ctx context.Context, left, right net.Conn, idle time.Duration,
 		if err == nil {
 			if cw, ok := dst.Conn.(interface{ CloseWrite() error }); ok {
 				err = cw.CloseWrite()
+				if err != nil {
+					err = atBridgeIO(dst.side, "close_write", err)
+				}
 			}
 			if observe && err == nil {
 				halfOnce.Do(func() { halfClosed = true; s.diagnostics.halfClosedActive.Add(1) })

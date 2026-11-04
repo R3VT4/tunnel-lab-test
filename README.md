@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.3-alpha — direct connection lifecycle diagnostics.**
+**Working name. v0.4.4-alpha — direct connection operation diagnostics.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -175,3 +175,15 @@ closes the Direct relay's TLS wrapper before the raw socket. No connection cap,
 idle default, authentication rule or wire protocol changes in this release.
 Local tests do not establish the cause of the user's earlier WAN interruption
 or promise more throughput. See DIAGNOSTICS_FA.md and ROADMAP_FA.md.
+
+
+## Direct operation attribution (0.4.4-alpha)
+
+Transfer events now include fixed `side`, `operation` and `error_code` values.
+The edge names its input `client` and its TLS connection `tunnel`; the relay
+names its TLS input `tunnel` and configured destination `target`. Operations
+are `read`, `write` and `close_write`. `transfer_failure_counts` retains a
+cumulative breakdown (including peer disconnects), excluding idle and shutdown.
+Only the first observed terminating copy error is reported. These fields do
+not establish a remote root cause or imply that CloseWrite failures are harmless.
+Raw error strings, addresses and payloads are excluded. See DIAGNOSTICS_FA.md.

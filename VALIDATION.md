@@ -119,3 +119,13 @@ notification and separate counter, real TCP reset versus process shutdown,
 and bounded event history without raw-error leakage. Existing tests remain
 required. Direct-only diagnostic changes and local test success do not prove
 the cause of historical WAN rejections or establish higher capacity.
+
+
+## v0.4.4-alpha operation attribution
+
+Three additional top-level tests inject read, write and CloseWrite failures on
+both relay sides; check primary-error preservation, immutable counter snapshots,
+bounded symbolic codes, redaction, exact clean-EOF handling and errors.Is/As.
+The existing real TCP/TLS half-close, idle, reset, cancellation and payload tests
+remain required. Tests cannot identify historical WAN io_error causes. The new
+metadata reports the local failing operation, not an independently proven cause.
