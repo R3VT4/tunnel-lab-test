@@ -1,6 +1,6 @@
 # Tunnel Lab
 
-**Working name. v0.4.2-alpha — optional SNI omission with full certificate verification.**
+**Working name. v0.4.3-alpha — direct connection lifecycle diagnostics.**
 
 [راهنمای فارسی](README_FA.md) · [نصب و آماده‌سازی GitHub](INSTALL_FA.md) · [Validation](VALIDATION.md)
 
@@ -151,3 +151,27 @@ Deployment evidence: in a consecutive OpenSSL comparison without ALPN and with
 X25519, the no-SNI handshake succeeded with certificate verification and the
 SNI-on handshake timed out. This does not establish where or why the traffic
 was interrupted, or establish successful application forwarding by this update.
+
+## Direct connection diagnostics (0.4.3-alpha)
+
+The loopback status API now includes the configured connection/idle limits and,
+for `edge`/`relay`, `connection_diagnostics`. This separates setup, forwarding,
+probe and half-closed active connections, records peak concurrency, and exposes
+setup failures by TCP/TLS/protocol/target stage. Half-closed connections remain
+a subset of forwarding connections. A bounded eight-event history and last
+error contain fixed categories and UTC timestamps, never raw error strings,
+credentials, addresses or tickets.
+
+Direct idle expiry is now counted in `idle_timeouts`, not legacy `errors`.
+Peer resets/broken pipes and other I/O failures remain errors with separate
+counters. Process-context cancellation is counted separately for bridges.
+Reverse/UDP error semantics remain unchanged and their status omits this
+Direct-only object. Do not compare raw error totals across versions as if their
+semantics were identical. Snapshots of live atomic gauges can briefly differ
+while a connection changes phase; no transactional snapshot is claimed.
+
+The transfer code preserves half-close, serializes idle deadline refreshes and
+closes the Direct relay's TLS wrapper before the raw socket. No connection cap,
+idle default, authentication rule or wire protocol changes in this release.
+Local tests do not establish the cause of the user's earlier WAN interruption
+or promise more throughput. See DIAGNOSTICS_FA.md and ROADMAP_FA.md.

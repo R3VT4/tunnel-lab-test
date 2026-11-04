@@ -37,7 +37,10 @@ func adminHandler(c Config, s *Stats) http.Handler {
 			w.Write([]byte(statusPage))
 		case "/api/status":
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(s.snapshot(c.Mode))
+			status := s.snapshot(c.Mode)
+			status["max_connections"] = c.MaxConnections
+			status["idle_seconds"] = c.IdleSeconds
+			json.NewEncoder(w).Encode(status)
 		case "/healthz":
 			w.Header().Set("Content-Type", "application/json")
 			w.Write([]byte(`{"process":"running","note":"not an end-to-end tunnel health check"}`))

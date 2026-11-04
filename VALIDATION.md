@@ -108,3 +108,14 @@ real direct/reverse/UDP transfers and authenticated probes, rejection of wrong
 CA and wrong hostname, and verifier checks for expired, not-yet-valid,
 client-only and missing server certificates. TLS 1.3 mutual authentication is
 retained. Local tests do not establish WAN reachability or censorship cause.
+
+
+## v0.4.3-alpha lifecycle checks
+
+Five additional top-level tests cover slot recovery after a failed TLS
+handshake and capacity rejection, a response delayed until after request EOF
+with observable half-close gauges, a real relay idle expiry with TLS close
+notification and separate counter, real TCP reset versus process shutdown,
+and bounded event history without raw-error leakage. Existing tests remain
+required. Direct-only diagnostic changes and local test success do not prove
+the cause of historical WAN rejections or establish higher capacity.

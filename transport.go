@@ -78,7 +78,7 @@ func dialTransport(ctx context.Context, c Config, tc *tls.Config, protocol strin
 	d := net.Dialer{Timeout: 5 * time.Second, KeepAlive: 30 * time.Second}
 	raw, err := d.DialContext(ctx, "tcp", c.Peer)
 	if err != nil {
-		return nil, fmt.Errorf("TCP connect %s: %w", c.Peer, err)
+		return nil, atStage("tcp_connect", fmt.Errorf("TCP connect %s: %w", c.Peer, err))
 	}
 	clientConfig := tc.Clone()
 	if c.ProtocolNegotiation == "encrypted-preface" {
@@ -99,7 +99,7 @@ func dialTransport(ctx context.Context, c Config, tc *tls.Config, protocol strin
 		conn.SetDeadline(deadline)
 	}
 	if err := conn.HandshakeContext(ctx); err != nil {
-		return nil, fmt.Errorf("TLS handshake %s: %w", c.Peer, err)
+		return nil, atStage("tls_handshake", fmt.Errorf("TLS handshake %s: %w", c.Peer, err))
 	}
 	if c.ProtocolNegotiation == "encrypted-preface" {
 		header, err := protocolHeader(protocol)
@@ -107,17 +107,17 @@ func dialTransport(ctx context.Context, c Config, tc *tls.Config, protocol strin
 			return nil, err
 		}
 		if err := writeAll(conn, header); err != nil {
-			return nil, fmt.Errorf("write encrypted preface: %w", err)
+			return nil, atStage("protocol_negotiation", fmt.Errorf("write encrypted preface: %w", err))
 		}
 		var ack [6]byte
 		if _, err := io.ReadFull(conn, ack[:]); err != nil {
-			return nil, fmt.Errorf("read encrypted preface acknowledgement: %w", err)
+			return nil, atStage("protocol_negotiation", fmt.Errorf("read encrypted preface acknowledgement: %w", err))
 		}
 		if !bytes.Equal(ack[:], header) {
-			return nil, fmt.Errorf("encrypted preface acknowledgement mismatch")
+			return nil, atStage("protocol_negotiation", fmt.Errorf("encrypted preface acknowledgement mismatch"))
 		}
 	} else if conn.ConnectionState().NegotiatedProtocol != protocol {
-		return nil, fmt.Errorf("ALPN mismatch: expected %q", protocol)
+		return nil, atStage("protocol_negotiation", fmt.Errorf("ALPN mismatch: expected %q", protocol))
 	}
 	conn.SetDeadline(time.Time{})
 	ok = true

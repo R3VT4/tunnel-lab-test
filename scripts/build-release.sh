@@ -15,13 +15,13 @@ for arch in amd64 arm64; do
   package="$stage/$arch"
   mkdir -p -- "$package/scripts" "$package/systemd"
   CGO_ENABLED=0 GOOS=linux GOARCH="$arch" go build -buildvcs=false -trimpath -ldflags "-s -w -X main.version=$release_version" -o "$package/tunnellab" .
-  cp -- README.md README_FA.md INSTALL_FA.md VALIDATION.md CHANGELOG.md VERSION "$package/"
+  cp -- README.md README_FA.md INSTALL_FA.md VALIDATION.md CHANGELOG.md DIAGNOSTICS_FA.md ROADMAP_FA.md VERSION "$package/"
   cp -- systemd/tunnellab@.service "$package/systemd/"
   cp -- scripts/install.sh "$package/scripts/"
   chmod 755 "$package/tunnellab" "$package/scripts/install.sh"
   (cd -- "$package" && sha256sum tunnellab > BINARY_SHA256SUMS)
   asset="tunnellab_v${release_version}_linux_${arch}.tar.gz"
-  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "$package" -czf "dist/$asset" tunnellab README.md README_FA.md INSTALL_FA.md VALIDATION.md CHANGELOG.md VERSION BINARY_SHA256SUMS scripts systemd
+  tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -C "$package" -czf "dist/$asset" tunnellab README.md README_FA.md INSTALL_FA.md VALIDATION.md CHANGELOG.md DIAGNOSTICS_FA.md ROADMAP_FA.md VERSION BINARY_SHA256SUMS scripts systemd
 done
 (cd dist && sha256sum "tunnellab_v${release_version}_linux_amd64.tar.gz" "tunnellab_v${release_version}_linux_arm64.tar.gz" > SHA256SUMS)
 echo "Built linux/amd64 and linux/arm64 release assets in dist/"

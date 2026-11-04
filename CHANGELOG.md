@@ -1,3 +1,20 @@
+# v0.4.3-alpha
+
+- Instrument Direct TCP setup/forwarding/probe/half-close phases, peak active
+  connections, per-stage setup failures and bounded categorized event history.
+- Separate Direct idle expiration and process shutdown from transfer failures;
+  retain reset/broken-pipe and other I/O errors in separate counters.
+- Serialize shared idle deadline updates and close the Direct relay TLS wrapper
+  before its underlying raw socket. Preserve half-close response behavior.
+- Display capacity/phase counters and the actual running version on the
+  read-only status page. No wire, authentication, default-limit or idle-policy
+  change. Reverse/UDP do not yet expose the new Direct-only diagnostics.
+- Add fault-based tests for failed-handshake slot reuse, delayed half-close
+  responses, idle TLS close notification, reset/shutdown classification and
+  bounded safe event reporting. WAN deployment remains pending.
+- Document staged QUIC/UDP and HTTP/2 transport plans; those transports are not
+  implemented by this release.
+
 # v0.4.2-alpha
 
 - Add client-only `omit_sni: true`, retaining `server_name` as the required
