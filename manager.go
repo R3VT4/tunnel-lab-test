@@ -203,6 +203,11 @@ func addInstance(base, name, source string, gid int) error {
 		if err = os.WriteFile(path, data, mode); err != nil {
 			return err
 		}
+		// WriteFile creation permissions are filtered by the invoking shell's
+		// umask. Apply the intended final mode before publishing the instance.
+		if err = os.Chmod(path, mode); err != nil {
+			return err
+		}
 		if gid >= 0 {
 			if err = os.Chown(path, -1, gid); err != nil {
 				return err
@@ -222,6 +227,9 @@ func addInstance(base, name, source string, gid int) error {
 		mode = 0640
 	}
 	if err = os.WriteFile(path, append(b, '\n'), mode); err != nil {
+		return err
+	}
+	if err = os.Chmod(path, mode); err != nil {
 		return err
 	}
 	if gid >= 0 {
