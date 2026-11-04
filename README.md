@@ -9,8 +9,9 @@ UDP-over-TLS, mutual TLS authentication, a read-only local status page, and
 an authenticated peer-measurement command. The aim is useful operation and
 measurable behavior, with further transport and path-management work to follow.
 
-UDP is framed inside TCP/TLS: this is not native UDP or QUIC. TCP head-of-line
-blocking applies. Reverse UDP and data-session migration are not implemented.
+The udp-edge/udp-relay modes frame UDP payloads inside TCP/TLS, with TCP
+head-of-line blocking. Direct TCP forwarding can separately opt into experimental
+QUIC/UDP. Reverse UDP and data-session migration are not implemented.
 There is no claim of better WAN performance than other tunnel tools.
 
 ## Source-only ZIP
