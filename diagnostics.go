@@ -24,25 +24,26 @@ type connectionEvent struct {
 }
 
 type connectionDiagnostics struct {
-	setupActive           atomic.Int64
-	forwardingActive      atomic.Int64
-	probeActive           atomic.Int64
-	halfClosedActive      atomic.Int64
-	peakActive            atomic.Int64
-	setupFailures         atomic.Int64
-	tcpFailures           atomic.Int64
-	tlsFailures           atomic.Int64
-	protocolFailures      atomic.Int64
-	targetFailures        atomic.Int64
-	probeFailures         atomic.Int64
-	idleTimeouts          atomic.Int64
-	peerDisconnects       atomic.Int64
-	transferFailures      atomic.Int64
-	shutdownClosed        atomic.Int64
-	mu                    sync.Mutex
-	lastError             *connectionEvent
-	recent                []connectionEvent
-	transferFailureCounts map[string]int64
+	setupActive            atomic.Int64
+	forwardingActive       atomic.Int64
+	probeActive            atomic.Int64
+	halfClosedActive       atomic.Int64
+	halfCloseAlreadyClosed atomic.Int64
+	peakActive             atomic.Int64
+	setupFailures          atomic.Int64
+	tcpFailures            atomic.Int64
+	tlsFailures            atomic.Int64
+	protocolFailures       atomic.Int64
+	targetFailures         atomic.Int64
+	probeFailures          atomic.Int64
+	idleTimeouts           atomic.Int64
+	peerDisconnects        atomic.Int64
+	transferFailures       atomic.Int64
+	shutdownClosed         atomic.Int64
+	mu                     sync.Mutex
+	lastError              *connectionEvent
+	recent                 []connectionEvent
+	transferFailureCounts  map[string]int64
 }
 
 func (d *connectionDiagnostics) noteActive(n int64) {
@@ -96,7 +97,8 @@ func (d *connectionDiagnostics) snapshot() map[string]any {
 		"scope": "direct_tcp", "setup_active": d.setupActive.Load(),
 		"forwarding_active": d.forwardingActive.Load(), "probe_active": d.probeActive.Load(),
 		"half_closed_active": d.halfClosedActive.Load(), "peak_active": d.peakActive.Load(),
-		"setup_failures": d.setupFailures.Load(), "probe_failures": d.probeFailures.Load(),
+		"half_close_already_closed": d.halfCloseAlreadyClosed.Load(),
+		"setup_failures":            d.setupFailures.Load(), "probe_failures": d.probeFailures.Load(),
 		"setup_failure_counts": map[string]int64{"tcp_connect": d.tcpFailures.Load(), "tls_handshake": d.tlsFailures.Load(), "protocol_negotiation": d.protocolFailures.Load(), "target_connect": d.targetFailures.Load()},
 		"idle_timeouts":        d.idleTimeouts.Load(), "peer_disconnects": d.peerDisconnects.Load(),
 		"transfer_failures": d.transferFailures.Load(), "shutdown_closed": d.shutdownClosed.Load(),

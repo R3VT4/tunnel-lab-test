@@ -1,3 +1,18 @@
+# v0.4.5-alpha
+
+- On Direct plain-socket CloseWrite returning ENOTCONN after clean copy EOF,
+  keep draining the opposite direction instead of immediately closing both
+  sockets. Retain the normal shared idle deadline and process cancellation.
+- Record half_close_already_closed separately, with a bounded non-failure event.
+  This counter reports a handled half-close condition, not successful delivery;
+  completed is incremented only if both copy directions subsequently finish.
+- Actual read/write ENOTCONN, reset, other CloseWrite errors and TLS CloseWrite
+  errors remain failures. Reverse/UDP behavior is unchanged. This does not prove
+  that historical WAN sessions lost payloads or that every such event is benign.
+- Add a delayed-response regression that fails on 0.4.4 behavior and boundary
+  checks for subsequent reset, idle, shutdown and unchanged legacy behavior.
+- No wire, configuration, authentication or limit changes. WAN check pending.
+
 # v0.4.4-alpha
 
 - Attribute Direct bridge failures to client/tunnel/target and read/write/close_write.

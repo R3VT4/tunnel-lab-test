@@ -129,3 +129,14 @@ bounded symbolic codes, redaction, exact clean-EOF handling and errors.Is/As.
 The existing real TCP/TLS half-close, idle, reset, cancellation and payload tests
 remain required. Tests cannot identify historical WAN io_error causes. The new
 metadata reports the local failing operation, not an independently proven cause.
+
+
+## v0.4.5-alpha half-close regression
+
+A fault-based delayed binary response test fails on the previous bridge behavior:
+CloseWrite ENOTCONN closes the still-needed response direction. After the change,
+exact payload and byte counts must be preserved. A second test checks subsequent
+reset, idle timeout, process cancellation and unchanged uninstrumented legacy
+bridge behavior. Read/write ENOTCONN and other CloseWrite failures remain covered
+by the operation-attribution test. This is a local regression, not proof of data
+loss in historical WAN sessions or a benchmark.

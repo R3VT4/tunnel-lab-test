@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"log"
 	"net"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 )
 
@@ -232,6 +234,16 @@ func bridgeReportSides(ctx context.Context, left, right net.Conn, idle time.Dura
 		if err == nil {
 			if cw, ok := dst.Conn.(interface{ CloseWrite() error }); ok {
 				err = cw.CloseWrite()
+				// A plain Direct TCP socket can already have lost its send side.
+				// ENOTCONN here must not abort the independent response copy.
+				// Keep waiting for EOF/error/idle/cancel on that copy. TLS close
+				// failures and actual read/write failures remain fatal.
+				_, encrypted := dst.Conn.(*tls.Conn)
+				if observe && !encrypted && errors.Is(err, syscall.ENOTCONN) {
+					s.diagnostics.halfCloseAlreadyClosed.Add(1)
+					s.diagnostics.transferEvent(bridgeResult{reason: "half_close_already_closed", err: atBridgeIO(dst.side, "close_write", err)}, false)
+					err = nil
+				}
 				if err != nil {
 					err = atBridgeIO(dst.side, "close_write", err)
 				}
